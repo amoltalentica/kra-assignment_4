@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "user-service.fullname" . }}-config
+  labels:
+    {{- include "user-service.labels" . | nindent 4 }}
+data:
+  DATABASE_PATH: {{ .Values.config.databasePath | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  KONG_JWT_ISS_KEY: {{ .Values.jwt.issKey | quote }}

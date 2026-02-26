@@ -1,0 +1,13 @@
+apiVersion: v2
+name: envoy-ddos
+description: Envoy Proxy for DDoS protection (local rate limiting + circuit breaker) in front of Kong
+type: application
+version: 1.0.0
+appVersion: "v1.28"
+keywords:
+  - envoy
+  - ddos
+  - rate-limiting
+  - circuit-breaker
+maintainers:
+  - name: DevOps Team

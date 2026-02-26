@@ -1,0 +1,35 @@
+# Kong Proxy Service (traffic entrypoint from Envoy)
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kong-gateway.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.proxy.type }}
+  ports:
+  - name: proxy
+    port: {{ .Values.proxy.port }}
+    targetPort: {{ .Values.proxy.containerPort }}
+    protocol: TCP
+  selector:
+    {{- include "kong-gateway.selectorLabels" . | nindent 4 }}
+---
+# Kong Admin Service (internal only — ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-admin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kong-gateway.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.admin.type }}
+  ports:
+  - name: admin
+    port: {{ .Values.admin.port }}
+    targetPort: {{ .Values.admin.containerPort }}
+    protocol: TCP
+  selector:
+    {{- include "kong-gateway.selectorLabels" . | nindent 4 }}

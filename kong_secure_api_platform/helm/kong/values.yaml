@@ -1,0 +1,81 @@
+# Kong API Gateway - DB-less Configuration
+# Fully parameterized for clean values.yaml usage
+
+# Namespace (created by helm install --create-namespace)
+namespace: api-platform
+
+replicaCount: 1
+
+image:
+  repository: kong
+  tag: "3.5"
+  pullPolicy: IfNotPresent
+
+# Backend user-service reference
+userService:
+  host: "user-service.api-platform.svc.cluster.local"
+  port: 80
+
+# JWT Authentication
+# NOTE: jwt.consumer.secret MUST match user-service helm chart's jwt.secretKey
+jwt:
+  enabled: true
+  consumer:
+    username: api-consumer
+    # iss claim value written into JWT tokens by the user-service
+    key: "kong-jwt-key"
+    # Shared secret — must equal helm/user-service/values.yaml jwt.secretKey
+    secret: "production-jwt-secret-change-this-randomly-generated-key-12345"
+  keyClaimName: iss
+
+# Rate Limiting (10 req/min per IP — hackathon requirement)
+rateLimiting:
+  enabled: true
+  minute: 10
+  hour: 100
+  policy: local       # local | cluster | redis
+  hideClientHeaders: false
+
+# IP Restriction / Whitelisting
+ipRestriction:
+  enabled: true
+  # Allow private network ranges (cluster-internal traffic will match these)
+  whitelist:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "127.0.0.1"
+
+# Custom Lua plugin
+customPlugin:
+  enabled: true
+  name: custom-token-validator
+  # Injected headers prefix
+  serviceName: "secure-api-platform"
+
+# Proxy service
+proxy:
+  type: ClusterIP
+  port: 80
+  containerPort: 8000
+
+# Admin service
+admin:
+  type: ClusterIP
+  port: 8001
+  containerPort: 8001
+
+# Resource limits
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Trusted IPs for X-Forwarded-For (allows Envoy to pass real client IP)
+trustedIps: "0.0.0.0/0,::/0"
+realIpHeader: "X-Forwarded-For"
+realIpRecursive: "on"
+

@@ -1,0 +1,57 @@
+# Envoy DDoS Protection Chart Values
+# Envoy sits in front of Kong and provides:
+#   - Local rate limiting (token bucket) — DDoS protection
+#   - Circuit breaker / connection limits
+#   - Upstream health checks
+
+replicaCount: 2
+
+image:
+  repository: envoyproxy/envoy
+  tag: "v1.28-latest"
+  pullPolicy: IfNotPresent
+
+# The Kong proxy service that Envoy forwards traffic to
+upstream:
+  host: "kong-proxy.api-platform.svc.cluster.local"
+  port: 80
+
+# DDoS / Rate Limiting — token bucket applied per Envoy instance
+rateLimiting:
+  # max_tokens is the burst capacity
+  maxTokens: 10
+  # tokens_per_fill refills this many every fill_interval
+  tokensPerFill: 10
+  # fill_interval: how often the bucket refills
+  fillInterval: "60s"
+
+# Circuit breaker settings (connection limits per upstream cluster)
+circuitBreaker:
+  maxConnections: 10
+  maxPendingRequests: 1000
+  maxRequests: 1000
+  maxRetries: 3
+
+# Service — NodePort so it is reachable via minikube IP
+service:
+  type: NodePort
+  httpPort: 80
+  httpTargetPort: 10000
+  httpNodePort: 30082
+  adminPort: 9901
+  adminTargetPort: 9901
+  adminNodePort: 30091
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Upstream health check path (Kong proxies /health to user-service)
+healthCheck:
+  path: "/health"
+  interval: "10s"
+  timeout: "5s"

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: kong-gateway
+description: Kong API Gateway (DB-less) with JWT, Rate Limiting, IP Whitelisting, and Custom Lua Plugin
+type: application
+version: 1.0.0
+appVersion: "3.5"
+keywords:
+  - kong
+  - api-gateway
+  - jwt
+  - rate-limiting
+  - ip-restriction
+  - ddos-protection
+maintainers:
+  - name: DevOps Team

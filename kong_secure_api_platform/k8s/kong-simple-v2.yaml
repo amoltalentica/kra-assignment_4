@@ -1,0 +1,209 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-declarative-config
+  namespace: api-platform
+data:
+  kong.yml: |
+    _format_version: "3.0"
+    _transform: true
+
+    consumers:
+      - username: api-consumer
+        jwt_secrets:
+          - algorithm: HS256
+            key: "kong-jwt-key"
+            secret: "production-jwt-secret-change-this-randomly-generated-key-12345"
+
+    plugins:
+      - name: correlation-id
+        config:
+          header_name: X-Correlation-ID
+          generator: uuid
+          echo_downstream: true
+
+    services:
+      - name: user-service
+        host: user-service.api-platform.svc.cluster.local
+        port: 80
+        protocol: http
+        path: /
+        routes:
+          - name: health-route
+            paths:
+              - ~/health$
+            strip_path: false
+            methods:
+              - GET
+            plugins:
+              - name: rate-limiting
+                config:
+                  minute: 10
+                  policy: local
+
+          - name: verify-route
+            paths:
+              - ~/verify$
+            strip_path: false
+            methods:
+              - GET
+            plugins:
+              - name: rate-limiting
+                config:
+                  minute: 10
+                  policy: local
+
+          - name: login-route
+            paths:
+              - ~/login$
+            strip_path: false
+            methods:
+              - POST
+            plugins:
+              - name: rate-limiting
+                config:
+                  minute: 5
+                  policy: local
+
+          - name: users-route
+            paths:
+              - ~/users
+            strip_path: false
+            methods:
+              - GET
+              - POST
+            plugins:
+              - name: jwt
+                config:
+                  key_claim_name: iss
+                  claims_to_verify:
+                    - exp
+                  secret_is_base64: false
+              - name: rate-limiting
+                config:
+                  minute: 10
+                  hour: 100
+                  policy: local
+              - name: ip-restriction
+                config:
+                  allow:
+                    - "10.0.0.0/8"
+                    - "172.16.0.0/12"
+                    - "192.168.0.0/16"
+                    - "127.0.0.1"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: api-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+    spec:
+      containers:
+      - name: kong
+        image: kong:3.5
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: proxy
+          containerPort: 8000
+          protocol: TCP
+        - name: admin
+          containerPort: 8001
+          protocol: TCP
+        env:
+        - name: KONG_DATABASE
+          value: "off"
+        - name: KONG_DECLARATIVE_CONFIG
+          value: /etc/kong/kong.yml
+        - name: KONG_PROXY_LISTEN
+          value: "0.0.0.0:8000"
+        - name: KONG_ADMIN_LISTEN
+          value: "0.0.0.0:8001"
+        - name: KONG_LOG_LEVEL
+          value: "warn"
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: "1"
+        
+        livenessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - netstat -tlnp | grep -q 8001 || ps aux | grep kong
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+        
+        readinessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - netstat -tlnp | grep -q 8000 || ps aux | grep kong
+          initialDelaySeconds: 25
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 5
+        
+        volumeMounts:
+        - name: kong-config
+          mountPath: /etc/kong
+        
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      
+      volumes:
+      - name: kong-config
+        configMap:
+          name: kong-declarative-config
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-proxy
+  namespace: api-platform
+  labels:
+    app: kong
+spec:
+  type: ClusterIP
+  ports:
+  - name: proxy
+    port: 80
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: kong
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kong-admin
+  namespace: api-platform
+  labels:
+    app: kong
+spec:
+  type: ClusterIP
+  ports:
+  - name: admin
+    port: 8001
+    targetPort: 8001
+    protocol: TCP
+  selector:
+    app: kong

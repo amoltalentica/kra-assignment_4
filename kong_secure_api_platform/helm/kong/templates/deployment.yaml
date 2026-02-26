@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kong-gateway.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kong-gateway.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kong-gateway.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "kong-gateway.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Force redeploy when config changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/plugin: {{ include (print $.Template.BasePath "/custom-plugin-configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+      - name: kong
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: proxy
+          containerPort: {{ .Values.proxy.containerPort }}
+          protocol: TCP
+        - name: admin
+          containerPort: {{ .Values.admin.containerPort }}
+          protocol: TCP
+        env:
+        # DB-less mode — all config from declarative file
+        - name: KONG_DATABASE
+          value: "off"
+        - name: KONG_DECLARATIVE_CONFIG
+          value: /etc/kong/kong.yml
+
+        # Enable bundled plugins + custom Lua plugin
+        - name: KONG_PLUGINS
+          value: "bundled,custom-token-validator"
+
+        # Lua package path — /opt/?.lua resolves:
+        #   require "kong.plugins.custom-token-validator.handler"
+        #   → /opt/kong/plugins/custom-token-validator/handler.lua
+        - name: KONG_LUA_PACKAGE_PATH
+          value: "/opt/?.lua;;"
+
+        # Networking
+        - name: KONG_PROXY_LISTEN
+          value: "0.0.0.0:{{ .Values.proxy.containerPort }}"
+        - name: KONG_ADMIN_LISTEN
+          value: "0.0.0.0:{{ .Values.admin.containerPort }}"
+
+        # Trust Envoy's X-Forwarded-For for real client IP
+        - name: KONG_TRUSTED_IPS
+          value: {{ .Values.trustedIps | quote }}
+        - name: KONG_REAL_IP_HEADER
+          value: {{ .Values.realIpHeader | quote }}
+        - name: KONG_REAL_IP_RECURSIVE
+          value: {{ .Values.realIpRecursive | quote }}
+
+        - name: KONG_LOG_LEVEL
+          value: "warn"
+        - name: KONG_NGINX_WORKER_PROCESSES
+          value: "1"
+
+        volumeMounts:
+        - name: kong-config
+          mountPath: /etc/kong
+        - name: custom-plugin
+          mountPath: /opt/kong/plugins/custom-token-validator
+
+        livenessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - "netstat -tlnp 2>/dev/null | grep -q {{ .Values.admin.containerPort }} || ps aux | grep -q kong"
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 5
+
+        readinessProbe:
+          exec:
+            command:
+              - /bin/sh
+              - -c
+              - "netstat -tlnp 2>/dev/null | grep -q {{ .Values.proxy.containerPort }} || ps aux | grep -q kong"
+          initialDelaySeconds: 25
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 5
+
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+
+      volumes:
+      - name: kong-config
+        configMap:
+          name: kong-declarative-config
+      - name: custom-plugin
+        configMap:
+          name: kong-custom-plugin
+          items:
+          - key: handler.lua
+            path: handler.lua
+          - key: schema.lua
+            path: schema.lua

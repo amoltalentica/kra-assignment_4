@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "envoy-ddos.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "envoy-ddos.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "envoy-ddos.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "envoy-ddos.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+      - name: envoy
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.service.httpTargetPort }}
+        - name: admin
+          containerPort: {{ .Values.service.adminTargetPort }}
+        command:
+        - /usr/local/bin/envoy
+        args:
+        - -c
+        - /etc/envoy/envoy.yaml
+        - --service-cluster
+        - envoy-ddos-protection
+        - --service-node
+        - envoy-proxy
+        - --log-level
+        - info
+        volumeMounts:
+        - name: config
+          mountPath: /etc/envoy
+        livenessProbe:
+          httpGet:
+            path: /ready
+            port: {{ .Values.service.adminTargetPort }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: {{ .Values.service.adminTargetPort }}
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+      - name: config
+        configMap:
+          name: envoy-config

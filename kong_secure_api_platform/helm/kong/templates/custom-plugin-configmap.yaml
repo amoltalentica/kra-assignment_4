@@ -1,0 +1,42 @@
+{{/*
+Custom Lua Plugin ConfigMap
+Provides handler.lua + schema.lua for the custom-token-validator Kong plugin.
+Requirement: Custom request/response header injection via Lua logic.
+Mounted into the Kong container at /opt/kong/plugins/custom-token-validator/
+KONG_LUA_PACKAGE_PATH=/opt/?.lua makes it discoverable as a Kong plugin.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kong-custom-plugin
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "kong-gateway.labels" . | nindent 4 }}
+data:
+  handler.lua: |
+{{ .Files.Get "plugins/custom-token-validator.lua" | indent 4 }}
+
+  schema.lua: |
+    -- Schema for custom-token-validator plugin
+    local typedefs = require "kong.db.schema.typedefs"
+
+    return {
+      name = "custom-token-validator",
+      fields = {
+        { protocols = typedefs.protocols_http },
+        { config = {
+            type = "record",
+            fields = {
+              { inject_headers = {
+                  type    = "boolean",
+                  default = true,
+              }},
+              { service_name = {
+                  type    = "string",
+                  default = "secure-api-platform",
+              }},
+            },
+        }},
+      },
+    }
+

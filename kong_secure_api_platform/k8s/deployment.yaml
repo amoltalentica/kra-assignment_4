@@ -1,0 +1,145 @@
+---
+# Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: api-platform
+  labels:
+    name: api-platform
+    environment: production
+
+---
+# ConfigMap for User Service
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: user-service-config
+  namespace: api-platform
+data:
+  DATABASE_PATH: "/app/data/users.db"
+  LOG_LEVEL: "INFO"
+
+---
+# Secret for JWT
+apiVersion: v1
+kind: Secret
+metadata:
+  name: user-service-secret
+  namespace: api-platform
+type: Opaque
+stringData:
+  JWT_SECRET_KEY: "production-jwt-secret-change-this-randomly-generated-key-12345"
+
+---
+# PersistentVolumeClaim for SQLite database
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-service-data
+  namespace: api-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  storageClassName: standard
+
+---
+# Deployment for User Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: api-platform
+  labels:
+    app: user-service
+    version: v1
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+        version: v1
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: user-service
+        image: user-service:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        - name: DATABASE_PATH
+          valueFrom:
+            configMapKeyRef:
+              name: user-service-config
+              key: DATABASE_PATH
+        - name: JWT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: user-service-secret
+              key: JWT_SECRET_KEY
+        volumeMounts:
+        - name: data
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: user-service-data
+
+---
+# Service for User Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: api-platform
+  labels:
+    app: user-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8000
+    protocol: TCP
+    name: http
+  selector:
+    app: user-service

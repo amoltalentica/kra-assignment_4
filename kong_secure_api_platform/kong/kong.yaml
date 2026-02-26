@@ -1,0 +1,136 @@
+_format_version: "3.0"
+_transform: true
+
+# ─────────────────────────────────────────────────────────────────────
+# JWT Consumer
+# key must equal KONG_JWT_ISS_KEY env var (the 'iss' claim in tokens).
+# secret must equal JWT_SECRET_KEY env var.
+# ─────────────────────────────────────────────────────────────────────
+consumers:
+  - username: api-consumer
+    jwt_secrets:
+      - algorithm: HS256
+        key: "kong-jwt-key"
+        secret: "production-jwt-secret-change-this-randomly-generated-key-12345"
+
+# ─────────────────────────────────────────────────────────────────────
+# Global plugins
+# ─────────────────────────────────────────────────────────────────────
+plugins:
+  - name: correlation-id
+    config:
+      header_name: X-Correlation-ID
+      generator: uuid
+      echo_downstream: true
+
+# ─────────────────────────────────────────────────────────────────────
+# Services & per-route plugins
+# ─────────────────────────────────────────────────────────────────────
+services:
+  - name: user-service
+    url: http://user-service.api-platform.svc.cluster.local:80
+    protocol: http
+    host: user-service.api-platform.svc.cluster.local
+    port: 80
+    path: /
+    retries: 5
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+
+    routes:
+
+      # ── /health — PUBLIC (auth bypass, rate-limited) ─────────────
+      - name: health-route
+        paths:
+          - ~/health$
+        methods:
+          - GET
+        strip_path: false
+        protocols:
+          - http
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 10
+              hour: 100
+              policy: local
+          - name: custom-token-validator
+            config:
+              inject_headers: true
+              service_name: "secure-api-platform"
+
+      # ── /verify — PUBLIC (auth bypass) ───────────────────────────
+      - name: verify-route
+        paths:
+          - ~/verify$
+        methods:
+          - GET
+        strip_path: false
+        protocols:
+          - http
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 10
+              hour: 100
+              policy: local
+          - name: custom-token-validator
+            config:
+              inject_headers: true
+              service_name: "secure-api-platform"
+
+      # ── /login — PUBLIC (no JWT, rate limited) ────────────────────
+      - name: login-route
+        paths:
+          - ~/login$
+        methods:
+          - POST
+        strip_path: false
+        protocols:
+          - http
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 5
+              policy: local
+          - name: custom-token-validator
+            config:
+              inject_headers: true
+              service_name: "secure-api-platform"
+
+      # ── /users — PROTECTED (JWT + rate-limit + IP whitelist) ─────
+      - name: users-route
+        paths:
+          - ~/users
+        methods:
+          - GET
+          - POST
+        strip_path: false
+        protocols:
+          - http
+        plugins:
+          - name: jwt
+            config:
+              key_claim_name: iss
+              claims_to_verify:
+                - exp
+              secret_is_base64: false
+              run_on_preflight: true
+          - name: rate-limiting
+            config:
+              minute: 10
+              hour: 100
+              policy: local
+          - name: ip-restriction
+            config:
+              allow:
+                - "10.0.0.0/8"
+                - "172.16.0.0/12"
+                - "192.168.0.0/16"
+                - "127.0.0.1"
+          - name: custom-token-validator
+            config:
+              inject_headers: true
+              service_name: "secure-api-platform"
+
