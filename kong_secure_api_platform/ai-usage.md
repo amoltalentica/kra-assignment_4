@@ -1,3 +1,8 @@
+AI Tools used: GitHub copilot (Claude Sonnet 4.6)
+
+
+Below listed are the prompts used to generate and deploy the kong_secure_api_platform:-
+
 User: With keeping context of all the files created in current working directory which includes helm,k8s, kong, microservice and scripts.
 Can you analyze existing files confirm that we have met all requirements form the Hackathon Problem Statement.
 If not then make the changes in existing code and give me final working solution and deploy it.
