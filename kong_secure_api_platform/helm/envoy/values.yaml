@@ -23,7 +23,7 @@ rateLimiting:
   # tokens_per_fill refills this many every fill_interval
   tokensPerFill: 10
   # fill_interval: how often the bucket refills
-  fillInterval: "60s"
+  fillInterval: "10s"
 
 # Circuit breaker settings (connection limits per upstream cluster)
 circuitBreaker:

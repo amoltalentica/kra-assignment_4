@@ -72,6 +72,44 @@ if [ "$PODS_READY" -lt 5 ]; then
   exit 1
 fi
 
+# ── 0.5. Envoy bucket preflight — wait for refill if exhausted ───────────────
+header "0.5. Envoy token bucket — preflight check"
+
+PROBE=$(mc_code "$BASE_URL/health" 2>/dev/null || echo "000")
+if [ "$PROBE" = "429" ]; then
+  echo -e "  ${YELLOW}⚠  Envoy token bucket exhausted (fill_interval: 10s).${NC}"
+  echo -e "  ${YELLOW}   Waiting for natural refill — no requests during wait (fill_interval: 10s).${NC}"
+  # Do NOT probe during the countdown — every request consumes a refilled token.
+  # With fill_interval=10s we sleep 15s to cover both replicas' independent timers.
+  WAIT=15
+  while [ $WAIT -gt 0 ]; do
+    printf "\r  ${CYAN}ℹ${NC}  Token bucket refill in ~%2ds (fill_interval: 10s) ..." "$WAIT"
+    sleep 1
+    WAIT=$((WAIT-1))
+  done
+  printf "\r%-70s\n" " "
+
+  # After the wait, probe up to 5 times (LB round-robins across 2 replicas).
+  # Accept as soon as any probe returns non-429.
+  REFILL_OK=0
+  for _i in $(seq 1 5); do
+    C=$(mc_code "$BASE_URL/health" 2>/dev/null || echo "000")
+    if [ "$C" != "429" ]; then
+      REFILL_OK=1
+      echo -e "  ${GREEN}✓${NC}  Token bucket refilled — HTTP $C received. Continuing."
+      break
+    fi
+    sleep 2
+  done
+
+  if [ "$REFILL_OK" = "0" ]; then
+    echo -e "  ${RED}✗ Bucket still exhausted after 15s. Check Envoy fill_interval config.${NC}"
+    exit 1
+  fi
+else
+  info "Envoy bucket healthy — HTTP $PROBE received. Proceeding."
+fi
+
 # ── 1. Public APIs (authentication bypass) ───────────────────────────────────
 header "1. Public APIs — no authentication required"
 
